@@ -101,36 +101,6 @@
           "name": "Telegram Bot API"
         }
       }
-    },
-    {
-      "parameters": {
-        "jsCode": "const items = [];\nconst users = $('Google Sheets - Read USERS').all();\nconst manager = users.find(u => u.json.Role === 'Manager');\n\nif (manager) {\n  for (const item of $input.all()) {\n    items.push({\n      json: {\n        ...item.json,\n        ManagerTelegramID: manager.json.TelegramID,\n        ManagerName: manager.json.Name\n      }\n    });\n  }\n}\n\nreturn items;"
-      },
-      "id": "get-manager",
-      "name": "Code - Get Manager Info",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1050, 200]
-    },
-    {
-      "parameters": {
-        "chatId": "={{ $json.ManagerTelegramID }}",
-        "text": "=📢 *Task mới đã được tạo*\n\n📋 Task: {{ $json.Title }}\n🆔 TaskID: {{ $json.TaskID }}\n👤 Assigned to: {{ $json.Owner }}\n🏷️ Type: {{ $json.Type }}\n⚡ Priority: {{ $json.Priority }}\n📱 Application: {{ $json.Application }}\n⏱️ Estimate: {{ $json.Estimate }}\n📅 Deadline: {{ $json.Deadline }}\n\n📝 {{ $json.Description }}",
-        "additionalFields": {
-          "parseMode": "Markdown"
-        }
-      },
-      "id": "send-telegram-manager",
-      "name": "Telegram - Notify Manager",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1,
-      "position": [1250, 200],
-      "credentials": {
-        "telegramApi": {
-          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
-          "name": "Telegram Bot API"
-        }
-      }
     }
   ],
   "connections": {
@@ -168,11 +138,6 @@
             "node": "Merge - Owner Info",
             "type": "main",
             "index": 0
-          },
-          {
-            "node": "Code - Get Manager Info",
-            "type": "main",
-            "index": 0
           }
         ]
       ]
@@ -193,17 +158,6 @@
         [
           {
             "node": "Telegram - Notify Owner",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Get Manager Info": {
-      "main": [
-        [
-          {
-            "node": "Telegram - Notify Manager",
             "type": "main",
             "index": 0
           }
