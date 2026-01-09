@@ -1,0 +1,151 @@
+{
+  "name": "Flow D - Daily Report cho Leader",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Cron - Daily 8:30 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "cronExpression": "30 8 * * *"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sheetId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list"
+        },
+        "range": "TASKS!A:N",
+        "options": {}
+      },
+      "id": "read-tasks",
+      "name": "Google Sheets - Read TASKS",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sheetId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list"
+        },
+        "range": "USERS!A:D",
+        "options": {}
+      },
+      "id": "read-users",
+      "name": "Google Sheets - Read USERS",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [450, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const tasks = $input.all();\nconst today = new Date().toISOString().split('T')[0];\nconst yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];\n\nlet doneYesterday = 0;\nlet doing = 0;\nlet blocked = 0;\nlet overdue = 0;\nlet total = 0;\nlet todo = 0;\n\nconst overdueList = [];\n\nfor (const item of tasks) {\n  const task = item.json;\n  total++;\n  \n  // Count by status\n  if (task.Status === 'Done' && task.LastUpdate === yesterday) {\n    doneYesterday++;\n  } else if (task.Status === 'Doing') {\n    doing++;\n  } else if (task.Status === 'Blocked') {\n    blocked++;\n  } else if (task.Status === 'Todo') {\n    todo++;\n  }\n  \n  // Check overdue\n  if (task.Status !== 'Done' && task.Deadline < today) {\n    overdue++;\n    const deadline = new Date(task.Deadline);\n    const diff = Math.ceil((new Date() - deadline) / (1000 * 60 * 60 * 24));\n    overdueList.push({\n      taskId: task.TaskID,\n      title: task.Title,\n      owner: task.Owner,\n      days: diff\n    });\n  }\n}\n\n// Sort overdue by days descending\noverdueList.sort((a, b) => b.days - a.days);\n\nreturn [{\n  json: {\n    total,\n    doneYesterday,\n    doing,\n    blocked,\n    todo,\n    overdue,\n    overdueList: overdueList.slice(0, 5) // Top 5\n  }\n}];"
+      },
+      "id": "aggregate-stats",
+      "name": "Code - Aggregate Statistics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const stats = $input.first().json;\nconst users = $('Google Sheets - Read USERS').all();\nconst leader = users.find(u => u.json.Role === 'Manager');\n\nif (!leader) {\n  throw new Error('Manager not found in USERS sheet');\n}\n\nlet overdueText = '';\nif (stats.overdueList.length > 0) {\n  overdueText = '\\n\\n🚨 *Top Overdue Tasks:*\\n';\n  for (const task of stats.overdueList) {\n    overdueText += `- ${task.taskId} (${task.owner}) – ${task.days} ngày\\n`;\n  }\n} else {\n  overdueText = '\\n\\n✅ Không có task overdue';\n}\n\nconst message = `📊 *Daily Dev Report*\n━━━━━━━━━━━━━━━━━━\n\n📈 *Tổng quan:*\n📦 Tổng task: ${stats.total}\n✅ Done hôm qua: ${stats.doneYesterday}\n🔄 Đang làm: ${stats.doing}\n📝 Todo: ${stats.todo}\n⛔ Blocked: ${stats.blocked}\n🚨 Overdue: ${stats.overdue}${overdueText}\n\n━━━━━━━━━━━━━━━━━━\n⏰ ${new Date().toLocaleString('vi-VN')}`;\n\nreturn [{\n  json: {\n    ...stats,\n    leaderTelegramId: leader.json.TelegramID,\n    message\n  }\n}];"
+      },
+      "id": "format-message",
+      "name": "Code - Format Report Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.leaderTelegramId }}",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parseMode": "Markdown"
+        }
+      },
+      "id": "send-telegram",
+      "name": "Telegram - Send Daily Report",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1050, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram Bot API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron - Daily 8:30 AM": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Read TASKS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google Sheets - Read USERS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Read TASKS": {
+      "main": [
+        [
+          {
+            "node": "Code - Aggregate Statistics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Aggregate Statistics": {
+      "main": [
+        [
+          {
+            "node": "Code - Format Report Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Format Report Message": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Daily Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

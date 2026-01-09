@@ -1,0 +1,301 @@
+{
+  "name": "Flow B - Nhắc task overdue",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Cron - Daily 9:00 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "cronExpression": "0 9 * * *"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sheetId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list"
+        },
+        "range": "TASKS!A:N",
+        "options": {}
+      },
+      "id": "read-tasks",
+      "name": "Google Sheets - Read TASKS",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sheetId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list"
+        },
+        "range": "USERS!A:D",
+        "options": {}
+      },
+      "id": "read-users",
+      "name": "Google Sheets - Read USERS",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [450, 500]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sheetId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list"
+        },
+        "range": "SETTINGS!A:B",
+        "options": {}
+      },
+      "id": "read-settings",
+      "name": "Google Sheets - Read SETTINGS",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [450, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\nconst today = new Date();\ntoday.setHours(0, 0, 0, 0);\n\nfor (const item of $input.all()) {\n  if (item.json.Status === 'Done') continue;\n  \n  const deadline = new Date(item.json.Deadline);\n  deadline.setHours(0, 0, 0, 0);\n  \n  if (deadline < today) {\n    const diffTime = today - deadline;\n    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));\n    \n    items.push({\n      json: {\n        ...item.json,\n        overdue_days: diffDays\n      }\n    });\n  }\n}\n\nreturn items;"
+      },
+      "id": "filter-overdue",
+      "name": "Code - Filter & Calculate Overdue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "Owner",
+              "field2": "Name"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "merge-owner",
+      "name": "Merge - Owner Info",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.overdue_days }}",
+              "operation": "smaller",
+              "value2": 5
+            }
+          ]
+        }
+      },
+      "id": "switch-escalation",
+      "name": "Switch - Check Escalation",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1250, 400]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.TelegramID }}",
+        "text": "=⚠️ *Task quá hạn*\n\n📋 Task: {{ $json.Title }}\n🆔 TaskID: {{ $json.TaskID }}\n📅 Deadline: {{ $json.Deadline }}\n⏰ Quá hạn: {{ $json.overdue_days }} ngày\n📊 Status: {{ $json.Status }}\n👤 Owner: {{ $json.Owner }}\n\n🔥 Vui lòng cập nhật ngay!",
+        "additionalFields": {
+          "parseMode": "Markdown"
+        }
+      },
+      "id": "send-telegram-owner",
+      "name": "Telegram - Send to Owner",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1450, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\nfor (const item of $input.all()) {\n  const users = $('Google Sheets - Read USERS').all();\n  const leader = users.find(u => u.json.Role === 'Manager');\n  \n  if (leader) {\n    items.push({\n      json: {\n        ...item.json,\n        LeaderTelegramID: leader.json.TelegramID,\n        LeaderName: leader.json.Name\n      }\n    });\n  }\n}\nreturn items;"
+      },
+      "id": "get-leader",
+      "name": "Code - Get Leader Info",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 500]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.TelegramID }}",
+        "text": "=⚠️ *Task quá hạn*\n\n📋 Task: {{ $json.Title }}\n🆔 TaskID: {{ $json.TaskID }}\n📅 Deadline: {{ $json.Deadline }}\n⏰ Quá hạn: {{ $json.overdue_days }} ngày\n📊 Status: {{ $json.Status }}\n👤 Owner: {{ $json.Owner }}\n\n🔥 Vui lòng cập nhật ngay!",
+        "additionalFields": {
+          "parseMode": "Markdown"
+        }
+      },
+      "id": "send-telegram-owner-escalate",
+      "name": "Telegram - Send to Owner (Escalate)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1650, 450],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.LeaderTelegramID }}",
+        "text": "=🚨 *ESCALATION - Task quá hạn nghiêm trọng*\n\n📋 Task: {{ $json.Title }}\n🆔 TaskID: {{ $json.TaskID }}\n📅 Deadline: {{ $json.Deadline }}\n⏰ Quá hạn: {{ $json.overdue_days }} ngày\n📊 Status: {{ $json.Status }}\n👤 Owner: {{ $json.Owner }}\n\n⚠️ Cần can thiệp ngay!",
+        "additionalFields": {
+          "parseMode": "Markdown"
+        }
+      },
+      "id": "send-telegram-leader",
+      "name": "Telegram - Escalate to Leader",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1850, 500],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram Bot API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron - Daily 9:00 AM": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Read TASKS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google Sheets - Read USERS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google Sheets - Read SETTINGS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Read TASKS": {
+      "main": [
+        [
+          {
+            "node": "Code - Filter & Calculate Overdue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Filter & Calculate Overdue": {
+      "main": [
+        [
+          {
+            "node": "Merge - Owner Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Read USERS": {
+      "main": [
+        [
+          {
+            "node": "Merge - Owner Info",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge - Owner Info": {
+      "main": [
+        [
+          {
+            "node": "Switch - Check Escalation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch - Check Escalation": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send to Owner",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Get Leader Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Get Leader Info": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send to Owner (Escalate)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Send to Owner (Escalate)": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Escalate to Leader",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

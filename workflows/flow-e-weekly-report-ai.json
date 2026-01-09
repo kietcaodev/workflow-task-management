@@ -1,0 +1,215 @@
+{
+  "name": "Flow E - Weekly Report với AI Analysis",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Cron - Weekly Monday 9:00 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "cronExpression": "0 9 * * 1"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sheetId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list"
+        },
+        "range": "TASKS!A:N",
+        "options": {}
+      },
+      "id": "read-tasks",
+      "name": "Google Sheets - Read TASKS",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sheetId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list"
+        },
+        "range": "USERS!A:D",
+        "options": {}
+      },
+      "id": "read-users",
+      "name": "Google Sheets - Read USERS",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [450, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const tasks = $input.all();\nconst today = new Date();\nconst weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);\nconst todayStr = today.toISOString().split('T')[0];\nconst weekAgoStr = weekAgo.toISOString().split('T')[0];\n\nlet doneThisWeek = 0;\nlet doing = 0;\nlet blocked = 0;\nlet overdue = 0;\nlet total = 0;\n\nconst ownerStats = {};\nconst overdueList = [];\nconst blockedList = [];\n\nfor (const item of tasks) {\n  const task = item.json;\n  total++;\n  \n  // Initialize owner stats\n  if (!ownerStats[task.Owner]) {\n    ownerStats[task.Owner] = {\n      name: task.Owner,\n      done: 0,\n      doing: 0,\n      blocked: 0,\n      overdue: 0,\n      total: 0\n    };\n  }\n  ownerStats[task.Owner].total++;\n  \n  // Count by status\n  if (task.Status === 'Done' && task.LastUpdate >= weekAgoStr) {\n    doneThisWeek++;\n    ownerStats[task.Owner].done++;\n  } else if (task.Status === 'Doing') {\n    doing++;\n    ownerStats[task.Owner].doing++;\n  } else if (task.Status === 'Blocked') {\n    blocked++;\n    ownerStats[task.Owner].blocked++;\n    blockedList.push({\n      taskId: task.TaskID,\n      title: task.Title,\n      owner: task.Owner,\n      reason: task.BlockReason || 'Không rõ'\n    });\n  }\n  \n  // Check overdue\n  if (task.Status !== 'Done' && task.Deadline < todayStr) {\n    overdue++;\n    ownerStats[task.Owner].overdue++;\n    const deadline = new Date(task.Deadline);\n    const diff = Math.ceil((today - deadline) / (1000 * 60 * 60 * 24));\n    overdueList.push({\n      taskId: task.TaskID,\n      title: task.Title,\n      owner: task.Owner,\n      days: diff\n    });\n  }\n}\n\n// Sort and prepare data\noverdueList.sort((a, b) => b.days - a.days);\nconst ownerArray = Object.values(ownerStats);\nownerArray.sort((a, b) => b.overdue - a.overdue);\n\nreturn [{\n  json: {\n    total,\n    doneThisWeek,\n    doing,\n    blocked,\n    overdue,\n    ownerStats: ownerArray,\n    overdueList: overdueList.slice(0, 10),\n    blockedList: blockedList.slice(0, 5),\n    weekStart: weekAgoStr,\n    weekEnd: todayStr\n  }\n}];"
+      },
+      "id": "aggregate-weekly",
+      "name": "Code - Aggregate Weekly Stats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const stats = $input.first().json;\n\nconst prompt = `Analyze the following team productivity data for the past week:\n\n**Overall Statistics:**\n- Total tasks: ${stats.total}\n- Done this week: ${stats.doneThisWeek}\n- Currently doing: ${stats.doing}\n- Blocked: ${stats.blocked}\n- Overdue: ${stats.overdue}\n\n**Per Developer:**\n${stats.ownerStats.map(dev => `\n- ${dev.name}:\n  * Total: ${dev.total}\n  * Done: ${dev.done}\n  * Doing: ${dev.doing}\n  * Blocked: ${dev.blocked}\n  * Overdue: ${dev.overdue}\n`).join('')}\n\n**Top Overdue Tasks:**\n${stats.overdueList.map(t => `- ${t.taskId} (${t.owner}) - ${t.days} days`).join('\\n')}\n\n**Blocked Tasks:**\n${stats.blockedList.map(t => `- ${t.taskId} (${t.owner}) - Reason: ${t.reason}`).join('\\n')}\n\nPlease provide:\n1. Summary of team productivity (3-4 sentences)\n2. Identified risks and bottlenecks\n3. Developers who may be overloaded or need support\n4. Actionable suggestions for improvement\n\nKeep it concise and actionable. Write in Vietnamese.`;\n\nreturn [{\n  json: {\n    ...stats,\n    aiPrompt: prompt\n  }\n}];"
+      },
+      "id": "prepare-ai-prompt",
+      "name": "Code - Prepare AI Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 1000
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a technical project manager analyzing team productivity. Provide insights in Vietnamese language."
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.aiPrompt }}"
+            }
+          ]
+        }
+      },
+      "id": "openai-analysis",
+      "name": "OpenAI - Analyze Productivity",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [1050, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const stats = $('Code - Prepare AI Prompt').first().json;\n\n// Get AI response from OpenAI output structure\nlet aiResponse = 'AI analysis not available';\nconst aiData = $input.first().json;\nif (aiData.output && aiData.output[0] && aiData.output[0].content && aiData.output[0].content[0]) {\n  aiResponse = aiData.output[0].content[0].text;\n}\n\nconst users = $('Google Sheets - Read USERS').all();\nconst leader = users.find(u => u.json.Role === 'Manager');\n\nif (!leader) {\n  throw new Error('Manager not found');\n}\n\nlet overdueText = '';\nif (stats.overdueList.length > 0) {\n  overdueText = '\\n\\n🚨 *Top Overdue Tasks:*\\n';\n  for (const task of stats.overdueList.slice(0, 5)) {\n    overdueText += `- ${task.taskId} (${task.owner}) – ${task.days} ngày\\n`;\n  }\n}\n\nlet blockedText = '';\nif (stats.blockedList.length > 0) {\n  blockedText = '\\n\\n⛔ *Blocked Tasks:*\\n';\n  for (const task of stats.blockedList) {\n    blockedText += `- ${task.taskId} (${task.owner}) – ${task.reason}\\n`;\n  }\n}\n\nlet teamText = '\\n\\n👥 *Team Performance:*\\n';\nfor (const dev of stats.ownerStats.slice(0, 5)) {\n  teamText += `\\n*${dev.name}:*\\n`;\n  teamText += `  ✅ Done: ${dev.done} | 🔄 Doing: ${dev.doing} | ⛔ Blocked: ${dev.blocked} | 🚨 Overdue: ${dev.overdue}\\n`;\n}\n\nconst message = `📊 *Weekly Dev Report*\n━━━━━━━━━━━━━━━━━━\n📅 ${stats.weekStart} → ${stats.weekEnd}\n\n📈 *Tổng quan tuần:*\n📦 Tổng task: ${stats.total}\n✅ Done tuần này: ${stats.doneThisWeek}\n🔄 Đang làm: ${stats.doing}\n⛔ Blocked: ${stats.blocked}\n🚨 Overdue: ${stats.overdue}${teamText}${overdueText}${blockedText}\n\n━━━━━━━━━━━━━━━━━━\n\n🤖 *AI Analysis:*\n${aiResponse}\n\n━━━━━━━━━━━━━━━━━━\n⏰ ${new Date().toLocaleString('vi-VN')}`;\n\nreturn [{\n  json: {\n    leaderTelegramId: leader.json.TelegramID,\n    message\n  }\n}];"
+      },
+      "id": "format-weekly-message",
+      "name": "Code - Format Weekly Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.leaderTelegramId }}",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parseMode": "Markdown"
+        }
+      },
+      "id": "send-telegram",
+      "name": "Telegram - Send Weekly Report",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1450, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram Bot API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron - Weekly Monday 9:00 AM": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Read TASKS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google Sheets - Read USERS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Read TASKS": {
+      "main": [
+        [
+          {
+            "node": "Code - Aggregate Weekly Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Aggregate Weekly Stats": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare AI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare AI Prompt": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Analyze Productivity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Analyze Productivity": {
+      "main": [
+        [
+          {
+            "node": "Code - Format Weekly Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Format Weekly Message": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Weekly Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

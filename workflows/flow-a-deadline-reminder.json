@@ -1,0 +1,195 @@
+{
+  "name": "Flow A - Nhắc task sắp deadline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Cron - Daily 8:00 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "",
+      "cronExpression": "0 8 * * *"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sheetId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Tasks Management"
+        },
+        "range": "TASKS!A:N",
+        "options": {}
+      },
+      "id": "read-tasks",
+      "name": "Google Sheets - Read TASKS",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\nconst reminderDays = 2;\nconst targetDate = new Date();\ntargetDate.setDate(targetDate.getDate() + reminderDays);\nconst targetDateStr = targetDate.toISOString().split('T')[0];\n\nfor (const item of $input.all()) {\n  if (item.json.Status !== 'Done' && item.json.Deadline === targetDateStr) {\n    items.push(item);\n  }\n}\n\nreturn items;"
+      },
+      "id": "filter-upcoming-deadline",
+      "name": "Code - Filter Sắp deadline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sheetId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list"
+        },
+        "range": "USERS!A:D",
+        "options": {}
+      },
+      "id": "read-users",
+      "name": "Google Sheets - Read USERS",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [450, 500]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sheetId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list"
+        },
+        "range": "SETTINGS!A:B",
+        "options": {}
+      },
+      "id": "read-settings",
+      "name": "Google Sheets - Read SETTINGS",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [450, 100]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "Owner",
+              "field2": "Name"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "merge-owner",
+      "name": "Merge - Owner Info",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.TelegramID }}",
+        "text": "=⏰ *Task sắp đến hạn*\n\n📋 Task: {{ $json.Title }}\n🆔 TaskID: {{ $json.TaskID }}\n📅 Deadline: {{ $json.Deadline }}\n📊 Status: {{ $json.Status }}\n👤 Owner: {{ $json.Owner }}\n\n✅ Vui lòng cập nhật trước hạn.",
+        "additionalFields": {
+          "parseMode": "Markdown"
+        }
+      },
+      "id": "send-telegram",
+      "name": "Telegram - Send Reminder",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1050, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram Bot API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron - Daily 8:00 AM": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Read TASKS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google Sheets - Read USERS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google Sheets - Read SETTINGS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Read TASKS": {
+      "main": [
+        [
+          {
+            "node": "Filter - Sắp deadline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter - Sắp deadline": {
+      "main": [
+        [
+          {
+            "node": "Merge - Owner Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Read USERS": {
+      "main": [
+        [
+          {
+            "node": "Merge - Owner Info",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge - Owner Info": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

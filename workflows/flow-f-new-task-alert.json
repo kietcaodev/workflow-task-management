@@ -1,0 +1,217 @@
+{
+  "name": "Flow F - Alert Task Mới",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Schedule - Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "cronExpression": "*/15 * * * *"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sheetId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list"
+        },
+        "range": "TASKS!A:N",
+        "options": {}
+      },
+      "id": "read-tasks",
+      "name": "Google Sheets - Read TASKS",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sheetId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list"
+        },
+        "range": "USERS!A:D",
+        "options": {}
+      },
+      "id": "read-users",
+      "name": "Google Sheets - Read USERS",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [450, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\nconst today = new Date();\ntoday.setHours(0, 0, 0, 0);\nconst todayStr = today.toISOString().split('T')[0];\n\nfor (const item of $input.all()) {\n  const task = item.json;\n  \n  // Check if task was created today (based on StartDate)\n  if (task.StartDate === todayStr) {\n    items.push(item);\n  }\n}\n\nreturn items;"
+      },
+      "id": "filter-new-tasks",
+      "name": "Code - Filter New Tasks Today",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "Owner",
+              "field2": "Name"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "merge-owner",
+      "name": "Merge - Owner Info",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.TelegramID }}",
+        "text": "=🆕 *Task mới được assign cho bạn!*\n\n📋 Task: {{ $json.Title }}\n🆔 TaskID: {{ $json.TaskID }}\n📝 Mô tả: {{ $json.Description }}\n🏷️ Type: {{ $json.Type }}\n⚡ Priority: {{ $json.Priority }}\n📊 Status: {{ $json.Status }}\n📱 Application: {{ $json.Application }}\n⏱️ Estimate: {{ $json.Estimate }}\n📅 Deadline: {{ $json.Deadline }}\n\n✅ Vui lòng xem xét và bắt đầu làm việc!",
+        "additionalFields": {
+          "parseMode": "Markdown"
+        }
+      },
+      "id": "send-telegram-owner",
+      "name": "Telegram - Notify Owner",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1050, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\nconst users = $('Google Sheets - Read USERS').all();\nconst manager = users.find(u => u.json.Role === 'Manager');\n\nif (manager) {\n  for (const item of $input.all()) {\n    items.push({\n      json: {\n        ...item.json,\n        ManagerTelegramID: manager.json.TelegramID,\n        ManagerName: manager.json.Name\n      }\n    });\n  }\n}\n\nreturn items;"
+      },
+      "id": "get-manager",
+      "name": "Code - Get Manager Info",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.ManagerTelegramID }}",
+        "text": "=📢 *Task mới đã được tạo*\n\n📋 Task: {{ $json.Title }}\n🆔 TaskID: {{ $json.TaskID }}\n👤 Assigned to: {{ $json.Owner }}\n🏷️ Type: {{ $json.Type }}\n⚡ Priority: {{ $json.Priority }}\n📱 Application: {{ $json.Application }}\n⏱️ Estimate: {{ $json.Estimate }}\n📅 Deadline: {{ $json.Deadline }}\n\n📝 {{ $json.Description }}",
+        "additionalFields": {
+          "parseMode": "Markdown"
+        }
+      },
+      "id": "send-telegram-manager",
+      "name": "Telegram - Notify Manager",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1250, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram Bot API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule - Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Read TASKS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google Sheets - Read USERS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Read TASKS": {
+      "main": [
+        [
+          {
+            "node": "Code - Filter New Tasks Today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Filter New Tasks Today": {
+      "main": [
+        [
+          {
+            "node": "Merge - Owner Info",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code - Get Manager Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Read USERS": {
+      "main": [
+        [
+          {
+            "node": "Merge - Owner Info",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge - Owner Info": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Notify Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Get Manager Info": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Notify Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

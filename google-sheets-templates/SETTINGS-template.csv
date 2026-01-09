@@ -1,0 +1,6 @@
+Key,Value
+reminder_before_days,2
+stale_task_days,3
+overdue_escalate_days,5
+report_time,08:30
+weekly_report_day,Monday
